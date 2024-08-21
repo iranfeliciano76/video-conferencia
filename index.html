@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Videoconferência</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #00C9FF, #92FE9D);
+            color: #fff;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 90%;
+            max-width: 1200px;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        #videos {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            flex-grow: 2;
+        }
+
+        video {
+            width: 300px;
+            height: 225px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            margin: 10px;
+        }
+
+        #chat-container {
+            display: flex;
+            flex-direction: column;
+            width: 30%;
+            margin-left: 20px;
+        }
+
+        #chat {
+            width: 100%;
+            height: 300px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 10px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+
+        #messageInput {
+            padding: 10px;
+            border-radius: 20px;
+            border: none;
+            width: calc(100% - 90px);
+        }
+
+        .send-button {
+            padding: 10px 20px;
+            background-color: #00C9FF;
+            border: none;
+            border-radius: 20px;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            margin-left: 10px;
+            transition: background 0.3s ease;
+        }
+
+        .send-button:hover {
+            background-color: #92FE9D;
+        }
+
+        .message {
+            background-color: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="videos">
+            <h1>Sala de Videoconferência</h1>
+            <video id="localVideo" autoplay muted></video>
+        </div>
+
+        <div id="chat-container">
+            <div id="chat"></div>
+            <div>
+                <input id="messageInput" type="text" placeholder="Digite sua mensagem...">
+                <button class="send-button" onclick="sendMessage()">Enviar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simple-peer/simplepeer.min.js"></script>
+    <script>
+        const socket = io();
+        const peers = {}; // Guardar os peers conectados
+
+        // Configurando a sala e o WebRTC
+        const roomID = 'sala1';  // Defina um ID único para a sala (pode ser dinâmico)
+        socket.emit('join-room', roomID);
+
+        // Captura de vídeo local
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            .then(stream => {
+                const videoElement = document.getElementById('localVideo');
+                videoElement.srcObject = stream;
+
+                // Notificar os usuários existentes sobre o novo usuário
+                socket.on('new-user', userId => {
+                    connectToNewUser(userId, stream);
+                });
+
+                // Receber sinais dos outros usuários
+                socket.on('signal', data => {
+                    if (peers[data.from]) {
+                        peers[data.from].signal(data.signal);
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Erro ao acessar câmera e microfone:', error);
+                alert('Erro ao acessar câmera e microfone. Certifique-se de que nenhum outro aplicativo está usando-os.');
+            });
+
+        // Conectar a novos usuários
+        function connectToNewUser(userId, stream) {
+            const peer = new SimplePeer({
+                initiator: true,
+                trickle: false,
+                stream: stream
+            });
+
+            peer.on('signal', signal => {
+                socket.emit('signal', { to: userId, from: socket.id, signal: signal });
+            });
+
+            peer.on('stream', userStream => {
+                const videoElement = document.createElement('video');
+                videoElement.srcObject = userStream;
+                videoElement.autoplay = true;
+                document.getElementById('videos').appendChild(videoElement);
+            });
+
+            peers[userId] = peer;
+        }
+
+        // Desconectar usuário
+        socket.on('user-disconnected', userId => {
+            if (peers[userId]) peers[userId].destroy();
+            delete peers[userId];
+        });
+
+        // Função de envio de mensagem
+        function sendMessage() {
+            const message = document.getElementById('messageInput').value;
+            if (message.trim() !== '') {
+                document.getElementById('chat').innerHTML += `<div class="message">Você: ${message}</div>`;
+                socket.emit('chat-message', message);
+                document.getElementById('messageInput').value = '';
+            }
+        }
+
+        // Recebendo mensagem de chat
+        socket.on('chat-message', message => {
+            document.getElementById('chat').innerHTML += `<div class="message">Participante: ${message}</div>`;
+        });
+    </script>
+</body>
+</html>
